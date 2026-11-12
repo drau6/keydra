@@ -9,7 +9,7 @@ looks at your **deployed** app the same way an outsider would, or at your
 copy-paste fix.
 
 > [!IMPORTANT]
-> |**keydra is primarily designed to run as a standalone CLI tool. Running keydra as a publicly accessible service may expose sensitive data and introduce security risks. Use it with caution and implement appropriate security controls.**|
+> **keydra is primarily designed to run as a standalone CLI tool. Running keydra as a publicly accessible service may expose sensitive data and introduce security risks. Use it with caution and implement appropriate security controls.**
 
 ```
 $ keydra scan https://my-app.example.com
