@@ -39,16 +39,25 @@ var skipFiles = map[string]bool{
 
 var envRe = regexp.MustCompile(`^\.env(\..+)?$`)
 
-func isEnvName(base string) bool {
+var envTemplateSuffixes = []string{".example", ".sample", ".template", ".dist"}
+
+// isEnvTemplateName reports whether base is a documented env template such as
+// .env.example, which lists variable names with placeholder values rather than
+// real secrets.
+func isEnvTemplateName(base string) bool {
 	if !envRe.MatchString(base) {
 		return false
 	}
-	for _, suffix := range []string{".example", ".sample", ".template", ".dist"} {
+	for _, suffix := range envTemplateSuffixes {
 		if strings.HasSuffix(base, suffix) {
-			return false
+			return true
 		}
 	}
-	return true
+	return false
+}
+
+func isEnvName(base string) bool {
+	return envRe.MatchString(base) && !isEnvTemplateName(base)
 }
 
 // Walk reads text files under root, skipping dependencies, binaries and
@@ -87,7 +96,7 @@ func Walk(root string, opts WalkOptions) ([]File, []string, error) {
 			return nil
 		}
 		if len(files) >= opts.MaxFiles {
-			warnings = append(warnings, fmt.Sprintf("stopped after %d files (raise the limit with --max-files)", opts.MaxFiles))
+			warnings = append(warnings, fmt.Sprintf("stopped after reaching the %d-file limit (raise it with --max-files)", opts.MaxFiles))
 			return filepath.SkipAll
 		}
 		fi, err := d.Info()

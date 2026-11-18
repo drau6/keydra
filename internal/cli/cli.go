@@ -50,7 +50,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	case "rules":
 		return runRules(rest, stdout, stderr)
 	case "version", "--version", "-version":
-		fmt.Fprintf(stdout, "keydra %s\n", buildinfo.Version)
+		fmt.Fprintf(stdout, "keydra %s\n", buildinfo.Current())
 		return ExitOK
 	case "help", "-h", "--help":
 		printTitle(stdout)
@@ -88,7 +88,7 @@ func looksLikeTarget(s string) bool {
 // the compact one-line title otherwise) plus the permission notice.
 func printTitle(w io.Writer) {
 	color := useColor("auto", w)
-	st := report.Style{Color: color, Version: buildinfo.Version, Art: showArt(color, w)}
+	st := report.Style{Color: color, Version: buildinfo.Current(), Art: showArt(color, w)}
 	report.Banner(w, st)
 }
 

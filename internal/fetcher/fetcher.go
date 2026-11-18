@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/drau6/keydra/internal/netutil"
 )
 
 // Options controls crawl limits.
@@ -23,6 +25,10 @@ type Options struct {
 	MaxBytes   int64
 	UserAgent  string
 	ThirdParty bool // also fetch scripts hosted on other origins
+	// AllowPrivate permits redirects to loopback/private addresses. It is
+	// implied when the scan target itself is local, so local development works
+	// without a flag.
+	AllowPrivate bool
 
 	// Depth is the number of page levels to crawl: 1 scans only the given
 	// page, 2 also follows its internal links, and so on.
@@ -60,12 +66,20 @@ type Result struct {
 type Fetcher struct {
 	opts   Options
 	client *http.Client
+	// baseHost is the host of the original target. Redirects may not leave it,
+	// so a target cannot redirect the scan to an unrelated or internal host.
+	baseHost string
+	// allowLocal permits private/local redirect targets (local development).
+	allowLocal bool
 }
+
+// DefaultTimeout is the per-request timeout used when Options.Timeout is unset.
+const DefaultTimeout = 15 * time.Second
 
 // New creates a Fetcher.
 func New(opts Options) *Fetcher {
 	if opts.Timeout <= 0 {
-		opts.Timeout = 15 * time.Second
+		opts.Timeout = DefaultTimeout
 	}
 	if opts.MaxFiles <= 0 {
 		opts.MaxFiles = 40
@@ -82,18 +96,38 @@ func New(opts Options) *Fetcher {
 	if opts.Delay <= 0 {
 		opts.Delay = 150 * time.Millisecond
 	}
-	return &Fetcher{
-		opts: opts,
-		client: &http.Client{
-			Timeout: opts.Timeout,
-			CheckRedirect: func(_ *http.Request, via []*http.Request) error {
-				if len(via) >= 5 {
-					return fmt.Errorf("too many redirects")
-				}
-				return nil
-			},
-		},
+	f := &Fetcher{opts: opts}
+	f.client = &http.Client{
+		Timeout:   opts.Timeout,
+		Transport: netutil.NewTransport(func() bool { return f.allowLocal }, nil),
 	}
+	f.client.CheckRedirect = f.checkRedirect
+	return f
+}
+
+// checkRedirect keeps redirects on the origin that served the request and, for
+// public targets, refuses private addresses. For the initial page that origin
+// is the scanned site; for a third-party asset it is the asset's own host, so
+// CDN redirects still work. This prevents a target (or a compromised preview
+// deployment) from redirecting the scanner into an internal service.
+func (f *Fetcher) checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 5 {
+		return fmt.Errorf("too many redirects")
+	}
+	origin := f.baseHost
+	if len(via) > 0 {
+		origin = via[0].URL.Hostname()
+	}
+	if origin == "" {
+		return fmt.Errorf("redirect blocked: no crawl origin")
+	}
+	if !netutil.SameSite(req.URL.Hostname(), origin) {
+		return fmt.Errorf("redirect to a different host blocked")
+	}
+	if !f.allowLocal && netutil.IsPrivateHost(req.URL.Hostname()) {
+		return fmt.Errorf("redirect to a private address blocked")
+	}
+	return nil
 }
 
 var (
@@ -109,9 +143,12 @@ var (
 // pages of the same site), the scripts they reference, one level of lazy
 // chunks and any publicly exposed source maps.
 func (f *Fetcher) Crawl(ctx context.Context, target string) (*Result, error) {
-	if _, err := url.Parse(target); err != nil {
-		return nil, fmt.Errorf("invalid url: %w", err)
+	u, err := url.Parse(target)
+	if err != nil || u.Host == "" {
+		return nil, fmt.Errorf("invalid url %q", target)
 	}
+	f.baseHost = netutil.CanonicalHost(u.Hostname())
+	f.allowLocal = f.opts.AllowPrivate || netutil.IsPrivateHost(u.Hostname())
 	html, finalURL, err := f.get(ctx, target)
 	if err != nil {
 		return nil, fmt.Errorf("fetching %s: %w", target, err)
@@ -399,6 +436,11 @@ func (f *Fetcher) resolve(base *url.URL, raw string) string {
 	}
 	u := base.ResolveReference(ref)
 	if u.Scheme != "http" && u.Scheme != "https" {
+		return ""
+	}
+	// Third-party mode relaxes the same-site rule, never the private-address
+	// rule: a page must not be able to make the scanner fetch local services.
+	if !f.allowLocal && netutil.IsPrivateHost(u.Hostname()) {
 		return ""
 	}
 	if !f.opts.ThirdParty && !strings.EqualFold(u.Host, base.Host) {

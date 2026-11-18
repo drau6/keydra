@@ -99,6 +99,7 @@ func (c *collector) analyze(assets []fetcher.Asset) extractor.Config {
 				Category: "Secrets",
 				Detail:   "This value ships to every visitor's browser and can be copied by anyone.",
 				Evidence: m.Value,
+				Secret:   true,
 				Location: a.URL,
 				Fix:      m.Rule.Fix,
 			}
@@ -130,6 +131,7 @@ func (c *collector) analyze(assets []fetcher.Asset) extractor.Config {
 				Category: "Supabase",
 				Detail:   "This key bypasses Row Level Security. Whoever holds it has full read/write access to the whole database.",
 				Evidence: k.Value,
+				Secret:   true,
 				Fix:      "Rotate the key in Supabase → Project Settings → API now, remove it from the frontend and use it only from server-side code.",
 			})
 		}

@@ -23,7 +23,13 @@ func (p *Prober) Supabase(ctx context.Context, cfg extractor.Config) Result {
 	if key == "" || len(cfg.SupabaseURLs) == 0 {
 		return res
 	}
-	for _, base := range cfg.SupabaseURLs {
+	for _, raw := range cfg.SupabaseURLs {
+		base, ok := p.safeURL(raw)
+		if !ok {
+			res.warn("supabase: skipped a non-public or invalid endpoint")
+			continue
+		}
+		base = strings.TrimRight(base, "/")
 		tables := cfg.Tables
 		found, err := p.supabaseTables(ctx, base, key)
 		if err != nil {

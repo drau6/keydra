@@ -26,7 +26,6 @@ func (s Style) bold(t string) string         { return s.sgr("1", t) }
 func (s Style) dim(t string) string          { return s.sgr("2", t) }
 func (s Style) green(t string) string        { return s.sgr("32", t) }
 func (s Style) yellow(t string) string       { return s.sgr("33", t) }
-func (s Style) indigo(t string) string       { return s.sgr("35", t) }
 func (s Style) cyanLink(t string) string     { return s.sgr("4;36", t) }
 func (s Style) fg256(n int, t string) string { return s.sgr(fmt.Sprintf("38;5;%d", n), t) }
 

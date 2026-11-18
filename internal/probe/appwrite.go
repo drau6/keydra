@@ -26,8 +26,14 @@ func (p *Prober) Appwrite(ctx context.Context, cfg extractor.Config) Result {
 	}
 	endpoint := appwriteCloud
 	if len(aw.Endpoints) > 0 {
-		endpoint = strings.TrimRight(aw.Endpoints[0], "/")
+		endpoint = aw.Endpoints[0]
 	}
+	endpoint, ok := p.safeURL(endpoint)
+	if !ok {
+		res.warn("appwrite: skipped a non-public or invalid endpoint")
+		return res
+	}
+	endpoint = strings.TrimRight(endpoint, "/")
 	project := aw.Projects[0]
 
 	get := func(path string) (int, int, error) {

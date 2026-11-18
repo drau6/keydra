@@ -15,7 +15,12 @@ import (
 // without authentication (empty API rule) and whether the admin UI is public.
 func (p *Prober) PocketBase(ctx context.Context, cfg extractor.Config) Result {
 	var res Result
-	for _, base := range capList(cfg.PocketBase, 2) {
+	for _, raw := range capList(cfg.PocketBase, 2) {
+		base, ok := p.safeURL(raw)
+		if !ok {
+			res.warn("pocketbase: skipped a non-public or invalid endpoint")
+			continue
+		}
 		base = strings.TrimRight(base, "/")
 		for _, col := range capList(cfg.Collections, p.MaxTargets) {
 			if ctx.Err() != nil {

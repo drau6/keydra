@@ -182,8 +182,8 @@ func buildSarifRun(r *model.Report, names map[string]string, version string) sar
 			}}},
 			Fingerprints: map[string]string{"keydra/v1": hex.EncodeToString(sum[:16])},
 		}
-		if f.Evidence != "" {
-			res.Properties = map[string]string{"evidence": f.Evidence}
+		if ev := redactedEvidence(f); ev != "" {
+			res.Properties = map[string]string{"evidence": ev}
 		}
 		results = append(results, res)
 	}

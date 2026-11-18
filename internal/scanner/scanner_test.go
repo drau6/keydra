@@ -96,3 +96,40 @@ func TestRunStaticFindings(t *testing.T) {
 		t.Fatalf("missing critical findings: %v", ids)
 	}
 }
+
+// TestRunLocalTargetProbesLocalBackend keeps local development working: a
+// target on loopback may point at a backend on loopback, without requiring
+// --allow-private.
+func TestRunLocalTargetProbesLocalBackend(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/collections/posts/records" {
+			w.Write([]byte(`{"page":1,"perPage":1,"totalItems":3,"totalPages":3,"items":[{"id":"x"}]}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer backend.Close()
+
+	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/app.js" {
+			w.Write([]byte(`const pb = new PocketBase("` + backend.URL + `"); pb.collection("posts").getList();`))
+			return
+		}
+		w.Write([]byte(`<html><script src="/app.js"></script></html>`))
+	}))
+	defer page.Close()
+
+	rep, err := Run(context.Background(), page.URL, Options{
+		Probe: true,
+		Fetch: fetcher.Options{Timeout: 5 * time.Second},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range rep.Findings {
+		if f.ID == "pocketbase-collection-exposed" {
+			return
+		}
+	}
+	t.Fatalf("local target should probe its local backend, findings=%+v warnings=%v", rep.Findings, rep.Warnings)
+}

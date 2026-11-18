@@ -23,7 +23,12 @@ var (
 // are reported as "verify this is intended", not as proof of a leak.
 func (p *Prober) Convex(ctx context.Context, cfg extractor.Config) Result {
 	var res Result
-	for _, base := range capList(cfg.Convex.URLs, 2) {
+	for _, raw := range capList(cfg.Convex.URLs, 2) {
+		base, ok := p.safeURL(raw)
+		if !ok {
+			res.warn("convex: skipped a non-public or invalid endpoint")
+			continue
+		}
 		for _, fn := range capList(cfg.Convex.Functions, p.MaxTargets) {
 			if ctx.Err() != nil {
 				return res

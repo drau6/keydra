@@ -10,15 +10,17 @@ import (
 
 	"github.com/drau6/keydra/internal/fetcher"
 	"github.com/drau6/keydra/internal/model"
+	"github.com/drau6/keydra/internal/netutil"
 	"github.com/drau6/keydra/internal/probe"
 )
 
 // Options configures a scan of a deployed app.
 type Options struct {
-	Fetch       fetcher.Options
-	Probe       bool     // run read-only network checks against discovered backends
-	Validate    bool     // opt-in: confirm detected secrets with one read-only request to each provider
-	ExtraTables []string // table/collection names to probe even if not auto-discovered (--tables)
+	Fetch        fetcher.Options
+	Probe        bool     // run read-only network checks against discovered backends
+	Validate     bool     // opt-in: confirm detected secrets with one read-only request to each provider
+	ExtraTables  []string // Supabase table names to probe even if not auto-discovered (--tables)
+	AllowPrivate bool     // allow loopback/private backend endpoints (local development)
 }
 
 // Run scans a deployed web app and returns a finished report.
@@ -28,6 +30,18 @@ func Run(ctx context.Context, target string, opts Options) (*model.Report, error
 	if err != nil {
 		return nil, err
 	}
+	if opts.Fetch.Timeout <= 0 {
+		opts.Fetch.Timeout = fetcher.DefaultTimeout
+	}
+
+	// A local target is a local development scan, so allow its local backend
+	// (for example a Supabase instance on 127.0.0.1). Public targets need the
+	// explicit --allow-private flag to reach local endpoints.
+	allowPrivate := opts.AllowPrivate
+	if u, perr := url.Parse(target); perr == nil {
+		allowPrivate = allowPrivate || netutil.IsPrivateHost(u.Hostname())
+	}
+	opts.Fetch.AllowPrivate = opts.Fetch.AllowPrivate || allowPrivate
 
 	crawl, err := fetcher.New(opts.Fetch).Crawl(ctx, target)
 	if err != nil {
@@ -54,6 +68,7 @@ func Run(ctx context.Context, target string, opts Options) (*model.Report, error
 	case opts.Probe:
 		p := probe.New(opts.Fetch.Timeout, opts.Fetch.UserAgent)
 		p.ExtraTables = opts.ExtraTables
+		p.AllowPrivate = allowPrivate
 		var results []probe.Result
 		if cfg.HasSupabase() {
 			results = append(results, p.Supabase(ctx, cfg))
