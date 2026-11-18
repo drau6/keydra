@@ -16,10 +16,6 @@ import (
 	"github.com/drau6/keydra/internal/model"
 )
 
-// b64 builds a URL-safe base64 string at runtime so no secret-shaped literal
-// lives in this file.
-func b64(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
-
 func TestScanListJSON(t *testing.T) {
 	srv1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Write([]byte(`<html><script src="/app.js"></script></html>`))

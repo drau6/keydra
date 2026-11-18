@@ -4,13 +4,20 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/drau6/keydra/internal/extractor"
 )
 
 func newTestProber() *Prober {
 	p := New(5*time.Second, "test")
 	p.delay = 0
+	// httptest servers listen on loopback; production scans block private
+	// endpoints unless AllowPrivate is set explicitly.
+	p.AllowPrivate = true
 	return p
 }
 
@@ -65,5 +72,85 @@ func TestRTDB(t *testing.T) {
 func TestSeverityFor(t *testing.T) {
 	if severityFor("customers") <= severityFor("todos") {
 		t.Fatal("sensitive table names should rank higher")
+	}
+}
+
+func TestSafeURLRejectsPrivateAndMetadata(t *testing.T) {
+	p := New(5*time.Second, "test")
+	for _, raw := range []string{
+		"http://127.0.0.1:5432",
+		"http://localhost:3000",
+		"http://169.254.169.254/latest/meta-data",
+		"http://metadata.google.internal",
+		"file:///etc/passwd",
+		"https://user:pass@example.com",
+	} {
+		if got, ok := p.safeURL(raw); ok {
+			t.Errorf("safeURL(%q) = %q, true; want it rejected", raw, got)
+		}
+	}
+	if got, ok := p.safeURL("https://example.com/api"); !ok || got != "https://example.com/api" {
+		t.Errorf("safeURL(public) = %q, %v", got, ok)
+	}
+
+	p.AllowPrivate = true
+	if _, ok := p.safeURL("http://127.0.0.1:5432"); !ok {
+		t.Error("AllowPrivate should permit a local development backend")
+	}
+}
+
+func TestSupabaseSkipsPrivateEndpoint(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Range", "0-0/5")
+		w.Write([]byte(`[{"x":1}]`))
+	}))
+	defer srv.Close()
+
+	p := New(5*time.Second, "test")
+	p.delay = 0 // AllowPrivate stays false, like a scan of a public target
+	cfg := extractor.Config{
+		SupabaseURLs: []string{srv.URL},
+		SupabaseKeys: []extractor.SupabaseKey{{Value: "anon-key", Role: extractor.RoleAnon}},
+		Tables:       []string{"profiles"},
+	}
+	res := p.Supabase(context.Background(), cfg)
+
+	if n := hits.Load(); n != 0 {
+		t.Errorf("private endpoint was contacted %d times", n)
+	}
+	if len(res.Findings) != 0 {
+		t.Errorf("private endpoint produced findings: %+v", res.Findings)
+	}
+	found := false
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "non-public") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a skipped-endpoint warning, got %v", res.Warnings)
+	}
+}
+
+func TestRedirectPolicyBlocksPrivateTargets(t *testing.T) {
+	p := New(5*time.Second, "test")
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:9000/secret", nil)
+	if err := p.client.CheckRedirect(req, nil); err == nil || !strings.Contains(err.Error(), "redirect blocked") {
+		t.Fatalf("private redirect should be blocked, got %v", err)
+	}
+
+	p.AllowPrivate = true
+	if err := p.client.CheckRedirect(req, nil); err != nil {
+		t.Fatalf("AllowPrivate should permit a local redirect, got %v", err)
+	}
+}
+
+func TestRedirectPolicyCapsHops(t *testing.T) {
+	p := New(5*time.Second, "test")
+	req := httptest.NewRequest(http.MethodGet, "https://example.com/next", nil)
+	if err := p.client.CheckRedirect(req, make([]*http.Request, 5)); err == nil || !strings.Contains(err.Error(), "too many redirects") {
+		t.Fatalf("redirect loop should be capped, got %v", err)
 	}
 }

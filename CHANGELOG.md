@@ -4,6 +4,39 @@ All notable changes to Keydra are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com); versions
 follow [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+## [1.1.0] — 2026-11-18
+
+### Added
+
+- `--redact` masks credential values in text and JSON reports. SARIF always
+  masks credential evidence because SARIF logs are commonly uploaded to
+  third-party services.
+- `--allow-private` lets a scan of a public target reach a local development
+  backend. Scans whose target is already local allow it automatically.
+- Version reporting now falls back to the module version recorded by
+  `go install ...@latest` when no `-ldflags` version was injected.
+
+### Fixed
+
+- Restored the permission notice under the banner and made the ASCII-art
+  banner show the actual version instead of a hard-coded one.
+- Redirects can no longer leave the scanned site or reach private/internal
+  addresses, and backend endpoints discovered in target-controlled code are
+  skipped unless they are public or explicitly allowed.
+- Backend probes now validate every redirect hop and refuse hostnames that
+  resolve to loopback, private or link-local addresses, not just literal
+  private IPs.
+- `--third-party` still relaxes the same-site rule but no longer fetches
+  scripts, chunks or source maps from private/local addresses.
+- Repo mode now honors `--max-files` when it is set, and non-positive
+  `--timeout`/`--max-files` values are rejected instead of silently changing
+  validation behavior.
+- `.env.example`/`.env.sample` files, documentation references and empty or
+  placeholder values no longer trigger `secret-in-public-env`.
+- JSON output now round-trips back into the report types.
+
 ## [1.0.0] — 2026-11-12
 
 First release. Keydra finds what a vibe-coded app is leaking — from the
@@ -49,4 +82,6 @@ you deploy — with a copy-paste fix for every finding.
 - Provider validation endpoints follow public docs and may need adjustment
   if a provider changes its API (such results surface as "unverified").
 
+[Unreleased]: https://github.com/drau6/keydra/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/drau6/keydra/releases/tag/v1.1.0
 [1.0.0]: https://github.com/drau6/keydra/releases/tag/v1.0.0

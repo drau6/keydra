@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -113,5 +114,121 @@ func TestDepthWarnsOnClientRenderedApps(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected a client-rendered warning, got %v", res.Warnings)
+	}
+}
+
+func TestRedirectStaysOnSameHost(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/final", http.StatusFound)
+	})
+	mux.HandleFunc("/final", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, "<html><script src=\"/app.js\"></script></html>")
+	})
+	mux.HandleFunc("/app.js", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, "console.log('ok')")
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	res := crawl(t, srv.URL, Options{})
+	if len(res.Assets) != 2 || !strings.HasSuffix(res.Assets[1].URL, "/app.js") {
+		t.Fatalf("same-host redirect should be followed, assets = %+v", res.Assets)
+	}
+}
+
+func TestCrossHostRedirectBlocked(t *testing.T) {
+	var nextHits atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/next", func(w http.ResponseWriter, _ *http.Request) {
+		nextHits.Add(1)
+		fmt.Fprint(w, "<html></html>")
+	})
+	var redirect string
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, redirect, http.StatusFound)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	// The same server, reached through a different hostname, must still count
+	// as a different host: redirects may not leave the scanned origin.
+	_, port, ok := strings.Cut(strings.TrimPrefix(srv.URL, "http://"), ":")
+	if !ok {
+		t.Fatalf("unexpected test server URL %q", srv.URL)
+	}
+	redirect = "http://localhost:" + port + "/next"
+
+	_, err := New(Options{Timeout: 5 * time.Second, Delay: time.Millisecond}).Crawl(context.Background(), srv.URL)
+	if err == nil || !strings.Contains(err.Error(), "different host") {
+		t.Fatalf("cross-host redirect should be blocked, got %v", err)
+	}
+	if n := nextHits.Load(); n != 0 {
+		t.Errorf("redirect target was requested %d times", n)
+	}
+}
+
+func TestCheckRedirectBlocksPrivateTargets(t *testing.T) {
+	f := &Fetcher{baseHost: "127.0.0.1"}
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:9000/internal", nil)
+	if err := f.checkRedirect(req, nil); err == nil || !strings.Contains(err.Error(), "private") {
+		t.Fatalf("private redirect should be blocked, got %v", err)
+	}
+
+	f.allowLocal = true
+	if err := f.checkRedirect(req, nil); err != nil {
+		t.Fatalf("local development should allow private redirects, got %v", err)
+	}
+
+	f.baseHost = ""
+	if err := f.checkRedirect(req, nil); err == nil {
+		t.Fatal("a redirect before any crawl origin must be blocked")
+	}
+}
+
+func TestTooManyRedirects(t *testing.T) {
+	f := &Fetcher{baseHost: "example.com"}
+	via := make([]*http.Request, 5)
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	if err := f.checkRedirect(req, via); err == nil || !strings.Contains(err.Error(), "too many redirects") {
+		t.Fatalf("redirect loop should be capped, got %v", err)
+	}
+}
+
+func TestResolveBlocksPrivateThirdPartyTargets(t *testing.T) {
+	base, err := url.Parse("https://example.com/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &Fetcher{opts: Options{ThirdParty: true}}
+	for _, raw := range []string{
+		"http://127.0.0.1:9000/secret.js",
+		"http://169.254.169.254/latest/meta-data",
+		"http://metadata.google.internal/computeMetadata/v1/",
+	} {
+		if got := f.resolve(base, raw); got != "" {
+			t.Errorf("resolve(%q) = %q, want it blocked", raw, got)
+		}
+	}
+	if got := f.resolve(base, "https://cdn.example.net/app.js"); got == "" {
+		t.Error("public third-party script should still resolve")
+	}
+
+	f.allowLocal = true
+	if got := f.resolve(base, "http://127.0.0.1:9000/secret.js"); got == "" {
+		t.Error("a local target should still be able to reference a private script")
+	}
+}
+
+func TestThirdPartyAssetRedirectWithinItsHost(t *testing.T) {
+	f := &Fetcher{baseHost: "example.com", opts: Options{ThirdParty: true}}
+	orig := httptest.NewRequest(http.MethodGet, "https://cdn.example.net/app.js", nil)
+	next := httptest.NewRequest(http.MethodGet, "https://cdn.example.net/app.v2.js", nil)
+	if err := f.checkRedirect(next, []*http.Request{orig}); err != nil {
+		t.Fatalf("asset redirect within its own host should be allowed, got %v", err)
+	}
+
+	other := httptest.NewRequest(http.MethodGet, "https://other.example.org/app.js", nil)
+	if err := f.checkRedirect(other, []*http.Request{orig}); err == nil {
+		t.Fatal("asset redirect to an unrelated host should still be blocked")
 	}
 }

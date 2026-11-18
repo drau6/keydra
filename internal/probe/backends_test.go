@@ -35,7 +35,7 @@ func TestAppwrite(t *testing.T) {
 	defer srv.Close()
 
 	cfg := extractor.Config{Appwrite: extractor.Appwrite{
-		Endpoints:   []string{srv.URL},
+		Endpoints:   []string{srv.URL + "/"},
 		Projects:    []string{"proj1"},
 		Collections: []extractor.DocRef{{Database: "db1", Collection: "users"}, {Database: "db1", Collection: "locked"}},
 		Tables:      []extractor.DocRef{{Database: "db1", Collection: "orders"}},

@@ -32,7 +32,12 @@ func (p *Prober) Firebase(ctx context.Context, cfg extractor.Config) Result {
 			dbs = append(dbs, fmt.Sprintf("https://%s-default-rtdb.firebaseio.com", id))
 		}
 	}
-	for _, db := range capList(dbs, 3) {
+	for _, raw := range capList(dbs, 3) {
+		db, ok := p.safeURL(raw)
+		if !ok {
+			res.warn("firebase rtdb: skipped a non-public or invalid endpoint")
+			continue
+		}
 		p.rtdb(ctx, db, &res)
 	}
 

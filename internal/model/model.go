@@ -1,7 +1,11 @@
 // Package model defines the shared data types passed between packages.
 package model
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 // Severity ranks how bad a finding is.
 type Severity int
@@ -26,6 +30,16 @@ func (s Severity) String() string {
 // MarshalText makes severities render as words in JSON output.
 func (s Severity) MarshalText() ([]byte, error) { return []byte(s.String()), nil }
 
+// UnmarshalText makes JSON output round-trip back into a Severity.
+func (s *Severity) UnmarshalText(text []byte) error {
+	v, ok := ParseSeverity(strings.ToLower(string(text)))
+	if !ok {
+		return fmt.Errorf("unknown severity %q", text)
+	}
+	*s = v
+	return nil
+}
+
 // ParseSeverity converts a name such as "high" into a Severity.
 func ParseSeverity(name string) (Severity, bool) {
 	for i, n := range severityNames {
@@ -43,7 +57,8 @@ type Finding struct {
 	Severity Severity `json:"severity"`
 	Category string   `json:"category"`
 	Detail   string   `json:"detail"`
-	Evidence string   `json:"evidence,omitempty"` // matched secret value, shown in full
+	Evidence string   `json:"evidence,omitempty"` // matched value; may be a live credential
+	Secret   bool     `json:"-"`                  // Evidence is a credential and must be redacted in shared output
 	Location string   `json:"location,omitempty"`
 	Fix      string   `json:"fix,omitempty"`
 	// Verified is set by opt-in live key validation: "active" (the provider

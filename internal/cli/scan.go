@@ -27,18 +27,20 @@ func runScan(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		list       = fs.String("list", "", "file with one URL per line (blank lines and #comments ignored, max 50); scans every URL in sequence")
 		validate   = fs.Bool("validate", false, "confirm detected secrets with one read-only request to each provider (reports active/rejected/unverified)")
 		timeout    = fs.Duration("timeout", 15*time.Second, "per-request timeout")
-		maxFiles   = fs.Int("max-files", 40, "maximum number of JavaScript files to download (URL mode)")
+		maxFiles   = fs.Int("max-files", 40, "maximum files: JS downloads in URL mode; repo mode reads 5000 unless this flag is set")
 		depth      = fs.Int("depth", 1, "page levels to crawl in URL mode: 1 = only the given page, 2 = also its internal links (max 5)")
 		maxPages   = fs.Int("max-pages", 20, "maximum number of HTML pages to fetch (URL mode, max 200)")
 		sitemap    = fs.Bool("sitemap", false, "also scan pages listed in /sitemap.xml (URL mode)")
-		tables     = fs.String("tables", "", "comma-separated table/collection names to probe even if auto-discovery finds none")
+		tables     = fs.String("tables", "", "comma-separated Supabase table names to probe even if auto-discovery finds none")
 		noBanner   = fs.Bool("no-banner", false, "print a one-line title instead of the ASCII-art banner")
 		thirdParty = fs.Bool("third-party", false, "also scan scripts hosted on other origins")
-		userAgent  = fs.String("user-agent", fmt.Sprintf("keydra/%s (+https://github.com/drau6/keydra)", buildinfo.Version), "User-Agent header")
+		userAgent  = fs.String("user-agent", fmt.Sprintf("keydra/%s (+https://github.com/drau6/keydra)", buildinfo.Current()), "User-Agent header")
 		failOn     = fs.String("fail-on", "high", "exit with code 1 if a finding of this severity or higher exists (info|low|medium|high|critical|never)")
 		colorMode  = fs.String("color", "auto", "colored output: auto|always|never")
 		noColor    = fs.Bool("no-color", false, "disable colored output (same as --color=never)")
 		verbose    = fs.Bool("v", false, "show full fix snippets")
+		redact     = fs.Bool("redact", false, "mask detected credential values in text and json output")
+		allowLocal = fs.Bool("allow-private", false, "allow discovered backends on local/private addresses (local development)")
 	)
 	fs.Usage = func() {
 		fmt.Fprintln(stderr, "Usage:\n  keydra scan <url> [flags]\n  keydra scan --repo <dir> [flags]\n  keydra scan --list <file> [flags]\n\nFlags:")
@@ -63,6 +65,21 @@ func runScan(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			return ExitError
 		}
 	}
+
+	if *timeout <= 0 {
+		fmt.Fprintln(stderr, "--timeout must be greater than zero")
+		return ExitError
+	}
+	if *maxFiles < 1 {
+		fmt.Fprintln(stderr, "--max-files must be at least 1")
+		return ExitError
+	}
+	maxFilesSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "max-files" {
+			maxFilesSet = true
+		}
+	})
 
 	threshold, never := model.Critical, false
 	if *failOn == "never" {
@@ -115,27 +132,33 @@ func runScan(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			mode = "never"
 		}
 		color := useColor(mode, stdout)
-		st = report.Style{Color: color, Version: buildinfo.Version, Art: !*noBanner && showArt(color, stdout)}
+		st = report.Style{Color: color, Version: buildinfo.Current(), Art: !*noBanner && showArt(color, stdout)}
 		report.Banner(stdout, st)
 	}
 
 	var reports []*model.Report
+	repoMaxFiles := 0 // let repo.Walk use its own default unless the user opted in
+	if maxFilesSet {
+		repoMaxFiles = *maxFiles
+	}
 	for _, target := range targets {
 		var rep *model.Report
 		if *repoDir != "" {
-			rep, err = scanner.RunRepo(ctx, *repoDir, scanner.RepoOptions{Validate: *validate})
+			rep, err = scanner.RunRepo(ctx, *repoDir, scanner.RepoOptions{MaxFiles: repoMaxFiles, Validate: *validate})
 		} else {
 			rep, err = scanner.Run(ctx, target, scanner.Options{
-				Probe:    !*noProbe,
-				Validate: *validate,
+				Probe:        !*noProbe,
+				Validate:     *validate,
+				AllowPrivate: *allowLocal,
 				Fetch: fetcher.Options{
-					Timeout:    *timeout,
-					MaxFiles:   *maxFiles,
-					Depth:      *depth,
-					MaxPages:   *maxPages,
-					Sitemap:    *sitemap,
-					UserAgent:  *userAgent,
-					ThirdParty: *thirdParty,
+					Timeout:      *timeout,
+					MaxFiles:     *maxFiles,
+					Depth:        *depth,
+					MaxPages:     *maxPages,
+					Sitemap:      *sitemap,
+					UserAgent:    *userAgent,
+					ThirdParty:   *thirdParty,
+					AllowPrivate: *allowLocal,
 				},
 				ExtraTables: splitTables(*tables),
 			})
@@ -150,6 +173,14 @@ func runScan(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return ExitError
 	}
 
+	// Mask credential evidence for text and JSON output. SARIF always masks
+	// credentials itself, so it does not depend on this flag.
+	if *redact && outFormat != "sarif" {
+		for _, rep := range reports {
+			report.Redact(rep)
+		}
+	}
+
 	switch outFormat {
 	case "json":
 		if err := writeJSON(stdout, reports, *list != ""); err != nil {
@@ -157,7 +188,7 @@ func runScan(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			return ExitError
 		}
 	case "sarif":
-		if err := writeSARIF(stdout, reports, buildinfo.Version); err != nil {
+		if err := writeSARIF(stdout, reports, buildinfo.Current()); err != nil {
 			fmt.Fprintf(stderr, "keydra: %v\n", err)
 			return ExitError
 		}

@@ -1,4 +1,4 @@
-VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo v1.0.0)
+VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo v1.1.0)
 LDFLAGS := -s -w -X github.com/drau6/keydra/internal/buildinfo.Version=$(VERSION)
 
 .PHONY: build test vet fmt install release docs clean

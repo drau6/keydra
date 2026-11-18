@@ -14,7 +14,7 @@ import (
 
 // RepoOptions configures a source-tree scan.
 type RepoOptions struct {
-	MaxFiles int
+	MaxFiles int  // source files to read; 0 uses the walker default
 	Validate bool // opt-in: confirm detected secrets with one read-only request to each provider
 }
 

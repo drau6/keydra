@@ -10,14 +10,20 @@ import (
 // needs to change. Pad short rows with trailing spaces so every line measures
 // the same width (the test enforces it); trailing spaces are invisible when
 // rendered.
+//
+// The version in the art is a placeholder: artLines replaces it with the
+// version passed in Style.Version.
 const Art = `                       █▄           
  ▄▄                    ██ ▄         
  ██ ▄█▀ ▄█▀█▄ ██ ██ ▄████ ████▄▄▀▀█▄
  ████   ██▄█▀ ██▄██ ██ ██ ██   ▄█▀██
 ▄██ ▀█▄▄▀█▄▄▄▄▄▀██▀▄█▀███▄█▀  ▄▀█▄██
-                ██                    v1.0.0
+                ██                    v1.1.0
               ▀▀▀                   
 			  `
+
+// artVersion is the placeholder visible in Art.
+const artVersion = "v1.1.0"
 
 // BrandColor is Keydra's single accent color (256-color palette): a blue
 // that reads as "leak/water" without colliding with the severity palette.
@@ -35,10 +41,17 @@ func ArtWidth() int {
 	return w
 }
 
-// artLines returns the banner lines, all in the brand color when color is
-// enabled and untouched otherwise.
+// artLines returns the banner lines with the injected version, in the brand
+// color when color is enabled and untouched otherwise.
 func (s Style) artLines() []string {
+	ver := s.Version
+	if ver == "" {
+		ver = "dev"
+	}
 	lines := strings.Split(Art, "\n")
+	for i, line := range lines {
+		lines[i] = strings.Replace(line, artVersion, ver, 1)
+	}
 	if !s.Color {
 		return lines
 	}

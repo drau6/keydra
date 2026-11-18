@@ -3,6 +3,7 @@ package report
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/drau6/keydra/internal/model"
@@ -78,5 +79,34 @@ func TestSARIF(t *testing.T) {
 	}
 	if levels["asupabase/m.sql"] != "error" || levels["b."] != "note" {
 		t.Errorf("levels: %v", levels)
+	}
+}
+
+// TestSARIFRedactsCredentialEvidence keeps SARIF safe to upload: credential
+// evidence is always masked, even without --redact, while non-secret evidence
+// such as a URL stays readable.
+func TestSARIFRedactsCredentialEvidence(t *testing.T) {
+	secret := "sk_live_abcdefghijklmnop"
+	rep := &model.Report{
+		Mode: "repo", Target: "/tmp/app",
+		Findings: []model.Finding{
+			{ID: "stripe-secret-key", Title: "Stripe key", Severity: model.Critical, Category: "Secrets", Detail: "d", Evidence: secret, Secret: true, Location: "lib/api.js"},
+			{ID: "source-map-exposed", Title: "Source map", Severity: model.Low, Category: "Exposure", Detail: "d", Evidence: "https://example.com/app.js.map", Location: "app.js"},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := SARIF(&buf, rep, "v1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if strings.Contains(out, secret) || strings.Contains(out, "abcdefghijklmnop") {
+		t.Fatalf("SARIF leaked full credential evidence:\n%s", out)
+	}
+	if !strings.Contains(out, "sk_l…mnop") {
+		t.Errorf("SARIF is missing the masked credential: %s", out)
+	}
+	if !strings.Contains(out, "https://example.com/app.js.map") {
+		t.Errorf("SARIF should keep non-secret evidence, got %s", out)
 	}
 }

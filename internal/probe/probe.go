@@ -5,6 +5,7 @@ package probe
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/drau6/keydra/internal/model"
+	"github.com/drau6/keydra/internal/netutil"
 )
 
 // Prober issues throttled, read-only requests.
@@ -21,22 +23,40 @@ type Prober struct {
 	delay  time.Duration
 	// MaxTargets caps tables / collections checked per backend.
 	MaxTargets int
-	// ExtraTables are table/collection names supplied by the user (--tables)
+	// ExtraTables are Supabase table names supplied by the user (--tables)
 	// to probe even when they cannot be auto-discovered.
 	ExtraTables []string
+	// AllowPrivate permits probes against loopback/private endpoints. It is
+	// off by default so a target cannot point the scanner at internal services.
+	AllowPrivate bool
 }
 
-// New builds a Prober.
+// New builds a Prober. The HTTP client resolves hostnames before connecting
+// and refuses private destinations, including on redirects, unless
+// AllowPrivate is set after construction.
 func New(timeout time.Duration, userAgent string) *Prober {
 	if timeout <= 0 {
 		timeout = 15 * time.Second
 	}
-	return &Prober{
-		client:     &http.Client{Timeout: timeout},
+	p := &Prober{
 		ua:         userAgent,
 		delay:      150 * time.Millisecond,
 		MaxTargets: 25,
 	}
+	p.client = &http.Client{
+		Timeout:   timeout,
+		Transport: netutil.NewTransport(func() bool { return p.AllowPrivate }, nil),
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			if _, err := netutil.ValidateHTTPURL(req.URL.String(), p.AllowPrivate); err != nil {
+				return fmt.Errorf("redirect blocked: %w", err)
+			}
+			return nil
+		},
+	}
+	return p
 }
 
 // Result bundles probe output.
@@ -47,6 +67,14 @@ type Result struct {
 
 func (r *Result) add(f model.Finding) { r.Findings = append(r.Findings, f) }
 func (r *Result) warn(s string)       { r.Warnings = append(r.Warnings, s) }
+
+// safeURL validates an endpoint taken from target-controlled configuration.
+// It rejects non-HTTP URLs, embedded credentials and, unless AllowPrivate is
+// set, loopback/private addresses.
+func (p *Prober) safeURL(raw string) (string, bool) {
+	u, err := netutil.ValidateHTTPURL(raw, p.AllowPrivate)
+	return u, err == nil
+}
 
 // do sends req after a short pause so we stay polite to the target.
 func (p *Prober) do(ctx context.Context, req *http.Request) (*http.Response, error) {

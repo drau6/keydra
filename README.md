@@ -18,7 +18,7 @@ $ keydra scan https://my-app.example.com
    ██ ▄█▀ ▄█▀█▄ ██ ██ ▄████ ████▄▄▀▀█▄
    ████   ██▄█▀ ██▄██ ██ ██ ██   ▄█▀██
   ▄██ ▀█▄▄▀█▄▄▄▄▄▀██▀▄█▀███▄█▀  ▄▀█▄██
-                  ██                    v1.0.0
+                  ██                    v1.1.0
                 ▀▀▀
 
 Keydra — find what your vibe-coded app is leaking.
@@ -107,12 +107,15 @@ keydra <url>                       # shortcut for scan
   --color <mode>    auto|always|never (honors NO_COLOR and FORCE_COLOR; --no-color also works)
   --no-probe        static analysis only, never contact discovered backends
   --validate        opt-in: ask each provider (one read-only request) whether a detected secret is still active
+  --redact          mask detected credential values in text/json output (SARIF always masks them)
+  --allow-private   allow discovered backends on local/private addresses (local development)
   --fail-on <sev>   exit 1 at/above severity: info|low|medium|high|critical|never (default high)
   --depth N         page levels to crawl in URL mode: 1 = only the given page (default),
                     2 = also its internal links, up to 5
   --max-pages N     maximum HTML pages to fetch in URL mode (default 20, max 200)
   --sitemap         also scan pages listed in /sitemap.xml
-  --max-files N     JS files to download in URL mode (default 40)
+  --max-files N     max files to read: JS downloads in URL mode, source files in
+                    repo mode (default 40 in URL mode; repo 5000 unless set)
   --third-party     also scan scripts hosted on other origins
   --timeout 15s     per-request timeout
   -v                show full fix snippets
@@ -129,7 +132,7 @@ interactive terminal the banner is ASCII art and the `│` gutter is colored by
 severity — red critical, orange high, blue low):
 
 ```
-  KEYDRA  v1.0.0
+  KEYDRA  v1.1.0
   keydra: only scan apps you own or have permission to test.
 
   repo  my-app
@@ -156,7 +159,8 @@ severity — red critical, orange high, blue low):
 
 Every finding shows the matched value in full (evidence), where it was found,
 and a copy-paste fix — so a scan report is all you need to start remediation.
-Values above are examples, not real keys.
+Pass `--redact` to mask credential evidence before sharing a text or JSON
+report (SARIF output always masks it). Values above are examples, not real keys.
 
 ## Crawling more than one page
 
@@ -243,7 +247,9 @@ heuristic. Treat findings as leads to verify.
 ## CI and GitHub code scanning
 
 `--format sarif` writes SARIF 2.1.0, which GitHub shows as code-scanning alerts.
-The banner and notes go to stderr, so stdout is clean:
+The banner and notes are printed with the text report on stdout; `json` and
+`sarif` keep stdout machine-readable. SARIF always masks credential evidence
+because these logs are commonly uploaded to third-party services:
 
 ```yaml
 # .github/workflows/keydra.yml  (pin actions to their current major versions)
@@ -429,9 +435,14 @@ this list drifts from the real checks. `keydra rules` prints the same list.
   target, and only the verdict is shown in the report.
 * Response bodies are not stored. Only status codes, row counts and top-level
   key names are used as evidence.
-* Secrets are shown in full in reports. Treat scan output as sensitive: it
-  contains live credentials, so don't paste it into issues, chats or logs
-  others can read.
+* Redirects stay on the scanned host, and backend endpoints discovered in page
+  code are only contacted on public addresses. A local target
+  (`localhost`/`127.0.0.1`) is allowed automatically; use `--allow-private`
+  when a public target legitimately points at a local development backend.
+* Secrets are shown in full in text and JSON reports by default; use `--redact`
+  before sharing one. SARIF always masks credential evidence. Treat any scan
+  output as sensitive: it can contain live credentials, so don't paste it into
+  issues, chats or logs others can read.
 * There is no parallel or unbounded mass-scan mode: list scanning (`--list`) is
   sequential and capped at 50 URLs per run.
 
@@ -442,6 +453,7 @@ cmd/keydra/        entry point (thin main)
 internal/cli/        commands, flags, exit codes
 internal/scanner/    orchestrates fetch → extract → detect → probe (URL and repo mode)
 internal/fetcher/    downloads page, scripts, lazy chunks, source maps
+internal/netutil/    host and private-address checks for redirects and endpoints
 internal/extractor/  pulls backend config (Supabase, Firebase, Appwrite, PocketBase, Convex) out of JS
 internal/detectors/  secret rules (with validators) and the check catalog
 internal/probe/      read-only backend checks

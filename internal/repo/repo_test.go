@@ -3,6 +3,7 @@ package repo
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/drau6/keydra/internal/model"
@@ -128,5 +129,31 @@ func TestCleanRepo(t *testing.T) {
 	files, _, _ := Walk(root, WalkOptions{})
 	if got := Check(files); len(got) != 0 {
 		t.Fatalf("expected no findings, got %+v", got)
+	}
+}
+
+func TestPublicEnvIgnoresTemplatesDocsAndPlaceholders(t *testing.T) {
+	files := []File{
+		{Rel: ".env.example", Body: "VITE_STRIPE_SECRET_KEY=your_stripe_key_here\n"},
+		{Rel: ".env.sample", Body: "NEXT_PUBLIC_OPENAI_KEY=<your-token>\n"},
+		{Rel: "README.md", Body: "Never use VITE_STRIPE_SECRET_KEY in the browser.\n"},
+		{Rel: ".env", IsEnv: true, Body: "VITE_STRIPE_SECRET_KEY=\n"},
+		{Rel: ".env.local", IsEnv: true, Body: "VITE_STRIPE_SECRET_KEY=changeme\n"},
+	}
+	if got := publicEnvVars(files); len(got) != 0 {
+		t.Fatalf("placeholder/template findings = %+v", got)
+	}
+}
+
+func TestPublicEnvFlagsRealUse(t *testing.T) {
+	stripe := "sk_" + "live_" + strings.Repeat("a", 24)
+	key := "VITE_STRIPE_SECRET_KEY"
+	files := []File{
+		{Rel: ".env", IsEnv: true, Body: key + "=" + stripe + "\n"},
+		{Rel: "src/app.js", Body: "const k = import.meta.env." + key + ";\n"},
+	}
+	got := publicEnvVars(files)
+	if len(got) != 1 || got[0].Evidence != key || got[0].Location != ".env" {
+		t.Fatalf("findings = %+v", got)
 	}
 }

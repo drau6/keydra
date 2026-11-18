@@ -49,10 +49,23 @@ func envFiles(files []File) []model.Finding {
 
 var publicEnvRe = regexp.MustCompile(`\b(?:NEXT_PUBLIC|VITE|REACT_APP|EXPO_PUBLIC|NUXT_PUBLIC)_[A-Z0-9_]*?(?:SECRET|SERVICE_ROLE|PRIVATE|PASSWORD|OPENAI|ANTHROPIC|STRIPE_SK|DEEPSEEK|GEMINI|SENDGRID|RESEND)[A-Z0-9_]*`)
 
+// placeholderValueRe matches values that document a variable instead of
+// carrying a real key ("your_key_here", "<token>", "changeme", ...).
+var placeholderValueRe = regexp.MustCompile(`(?i)^(?:your[-_ ]|<[^>]*>|changeme|change[-_ ]?me|placeholder|example|sample|dummy|fake|todo|replace[-_ ]?me|xxx+|\.{3}|redacted|\$\{?[a-z_])`)
+
 func publicEnvVars(files []File) []model.Finding {
 	first := map[string]string{}
 	for _, f := range files {
+		base := path.Base(f.Rel)
+		if isEnvTemplateName(base) || isDocName(base) {
+			continue
+		}
 		for _, name := range publicEnvRe.FindAllString(f.Body, -1) {
+			// A real .env file only counts when it assigns a real value. This
+			// keeps empty or placeholder entries and comments from firing.
+			if f.IsEnv && !envHasRealValue(f.Body, name) {
+				continue
+			}
 			if _, ok := first[name]; !ok {
 				first[name] = f.Rel
 			}
@@ -78,6 +91,30 @@ func publicEnvVars(files []File) []model.Finding {
 		})
 	}
 	return out
+}
+
+func isDocName(base string) bool {
+	switch strings.ToLower(path.Ext(base)) {
+	case ".md", ".markdown", ".mdx", ".rst", ".txt":
+		return true
+	}
+	return false
+}
+
+// envHasRealValue reports whether the env file assigns name a non-empty,
+// non-placeholder value. A mention in a comment does not count.
+func envHasRealValue(body, name string) bool {
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		line = strings.TrimPrefix(line, "export ")
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || strings.TrimSpace(key) != name {
+			continue
+		}
+		value = strings.Trim(strings.TrimSpace(value), `"'`)
+		return value != "" && !placeholderValueRe.MatchString(value)
+	}
+	return false
 }
 
 // ---- Supabase SQL migrations ----
