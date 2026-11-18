@@ -8,7 +8,7 @@ import (
 )
 
 // TestBannerInHelpAndUsage checks that bare `keydra` and `keydra -h` both
-// show the banner (title + permission notice) before the usage text.
+// show the banner (title) before the usage text.
 func TestBannerInHelpAndUsage(t *testing.T) {
 	cases := []struct {
 		name string
@@ -27,7 +27,7 @@ func TestBannerInHelpAndUsage(t *testing.T) {
 			t.Errorf("%s: exit %d, want %d", c.name, code, c.code)
 		}
 		got := c.dest(&out, &errOut)
-		for _, want := range []string{"KEYDRA", "keydra: only scan apps you own", "Usage:"} {
+		for _, want := range []string{"KEYDRA", "Usage:"} {
 			if !strings.Contains(got, want) {
 				t.Errorf("%s: missing %q in:\n%s", c.name, want, got)
 			}
@@ -35,6 +35,24 @@ func TestBannerInHelpAndUsage(t *testing.T) {
 		if strings.Contains(out.String(), "\x1b[") {
 			t.Errorf("%s: piped output must not contain ANSI escapes", c.name)
 		}
+	}
+}
+
+// TestHelpPrintsTaglineOnce guards against the tagline appearing twice on a
+// wide interactive terminal, where the art banner already prints it and the
+// usage text used to repeat it.
+func TestHelpPrintsTaglineOnce(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("FORCE_COLOR", "1")
+	t.Setenv("COLUMNS", "200")
+
+	var out, errOut bytes.Buffer
+	if code := Run(context.Background(), []string{"-h"}, &out, &errOut); code != ExitOK {
+		t.Fatalf("exit %d, want %d", code, ExitOK)
+	}
+	const tagline = "find what your vibe-coded app is leaking"
+	if n := strings.Count(out.String(), tagline); n != 1 {
+		t.Errorf("tagline appears %d times, want 1 in:\n%s", n, out.String())
 	}
 }
 

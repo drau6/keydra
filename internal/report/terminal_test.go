@@ -78,11 +78,10 @@ func TestArtBanner(t *testing.T) {
 	}
 }
 
-// TestBannerVersionAndPermissionNotice guards the two regressions that made
-// the banner stop matching README and help output: the version must come from
-// Style (not a hard-coded art string) and the permission notice must print in
-// both compact and art modes.
-func TestBannerVersionAndPermissionNotice(t *testing.T) {
+// TestBannerVersion guards the regression that made the banner stop matching
+// README and help output: the version must come from Style (not a hard-coded
+// art string).
+func TestBannerVersion(t *testing.T) {
 	for _, art := range []bool{false, true} {
 		var buf bytes.Buffer
 		Banner(&buf, Style{Art: art, Version: "v7.7.7"})
@@ -92,9 +91,6 @@ func TestBannerVersionAndPermissionNotice(t *testing.T) {
 		}
 		if art && strings.Contains(out, "v1.0.0") {
 			t.Errorf("art banner still shows the hard-coded placeholder:\n%s", out)
-		}
-		if !strings.Contains(out, "only scan apps you own or have permission to test") {
-			t.Errorf("art=%v: banner missing permission notice:\n%s", art, out)
 		}
 	}
 }

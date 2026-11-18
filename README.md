@@ -21,8 +21,7 @@ $ keydra scan https://my-app.example.com
                   ██                    v1.1.0
                 ▀▀▀
 
-Keydra — find what your vibe-coded app is leaking.
-  keydra: only scan apps you own or have permission to test.
+keydra — find what your vibe-coded app is leaking.
 
   url   https://my-app.example.com
   2 pages · 14 files scanned · 2.1s
@@ -133,7 +132,6 @@ severity — red critical, orange high, blue low):
 
 ```
   KEYDRA  v1.1.0
-  keydra: only scan apps you own or have permission to test.
 
   repo  my-app
   3 files scanned · 1ms

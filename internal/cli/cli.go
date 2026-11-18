@@ -21,8 +21,7 @@ const (
 	ExitError    = 2 // usage or runtime error
 )
 
-const usage = `keydra — find what your vibe-coded app is leaking.
-
+const usage = `
 Usage:
   keydra scan <url> [flags]    scan a deployed web app
   keydra scan --repo <dir>     scan local source before you deploy
@@ -62,7 +61,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			// ("keydra asd") that is a mistyped command rather than a
 			// target: report it instead of attempting a doomed DNS lookup.
 			printTitle(stderr)
-			fmt.Fprintf(stderr, "unknown command or flag %q\n\n%s", cmd, usage)
+			fmt.Fprintf(stderr, "unknown command or flag %q\n%s", cmd, usage)
 			return ExitError
 		}
 		return runScan(ctx, args, stdout, stderr) // bare URL shortcut
@@ -85,7 +84,7 @@ func looksLikeTarget(s string) bool {
 }
 
 // printTitle prints the banner (ASCII art when the terminal is wide enough,
-// the compact one-line title otherwise) plus the permission notice.
+// the compact one-line title otherwise).
 func printTitle(w io.Writer) {
 	color := useColor("auto", w)
 	st := report.Style{Color: color, Version: buildinfo.Current(), Art: showArt(color, w)}

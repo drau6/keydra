@@ -10,14 +10,13 @@ import (
 )
 
 const (
-	labelWidth       = 9
-	permissionNotice = "keydra: only scan apps you own or have permission to test."
-	tagline          = "Keydra — find what your vibe-coded app is leaking."
+	labelWidth = 9
+	tagline    = "keydra — find what your vibe-coded app is leaking."
 )
 
 // Banner prints the title (ASCII art on wide interactive terminals, a compact
-// one-line title otherwise), the tagline and the permission notice. CLI callers
-// print it immediately, before the scan runs, so the user sees it while waiting.
+// one-line title otherwise) and the tagline. CLI callers print it immediately,
+// before the scan runs, so the user sees it while waiting.
 func Banner(w io.Writer, st Style) {
 	banner(w, st)
 }
@@ -95,11 +94,9 @@ func banner(w io.Writer, st Style) {
 		}
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, tagline)
-		fmt.Fprintf(w, "  %s\n", st.dim(permissionNotice))
 		return
 	}
 	fmt.Fprintf(w, "\n  %s  %s\n", st.bold(st.fg256(BrandColor, "KEYDRA")), st.dim(ver))
-	fmt.Fprintf(w, "  %s\n", st.dim(permissionNotice))
 }
 
 func label(st Style, name string) string {
